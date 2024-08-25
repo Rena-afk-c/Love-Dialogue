@@ -1,76 +1,103 @@
 local Parser = {}
 
+-- Utility function to trim whitespace from both ends of a string
+local function trim(s)
+    return s:match("^%s*(.-)%s*$")
+end
+
 function Parser.parseFile(filePath)
     local lines = {}
     local characters = {}
+    local currentSection = "start"
     local currentLine = 1
 
+    lines[currentSection] = {}
+
     for line in love.filesystem.lines(filePath) do
-        local character, text = line:match("^(%S+):%s*(.+)$")
-        if character and text then
-            local isEnd = text:match("%(end%)$")
-            if isEnd then
-                text = text:gsub("%s*%(end%)$", "")
-            end
-
-            local parsedLine = {character = character, text = "", isEnd = isEnd, effects = {}, branches = nil}
-            local currentIndex = 1
-
-            while true do
-                local startTag, endTag, tag, content = text:find("%[([^:]+):([^%]]+)%]", currentIndex)
-
-                if not startTag then
-                    -- No more tags found, add the rest of the text
-                    parsedLine.text = parsedLine.text .. text:sub(currentIndex)
-                    break
-                end
-
-                -- Add text before the tag
-                parsedLine.text = parsedLine.text .. text:sub(currentIndex, startTag - 1)
-
-                local effect = {
-                    type = tag,
-                    content = content,
-                    startIndex = #parsedLine.text + 1,
-                    endIndex = #parsedLine.text + 1  -- This will be updated when we find the closing tag
-                }
-
-                -- Find the closing tag
-                local closingStart, closingEnd = text:find("%[/" .. tag .. "%]", endTag + 1)
-                if closingStart then
-                    parsedLine.text = parsedLine.text .. text:sub(endTag + 1, closingStart - 1)
-                    effect.endIndex = #parsedLine.text
-                    currentIndex = closingEnd + 1
-                else
-                    -- If no closing tag, treat it as a single-character effect
-                    parsedLine.text = parsedLine.text .. text:sub(endTag + 1, endTag + 1)
-                    effect.endIndex = effect.startIndex
-                    currentIndex = endTag + 2
-                end
-
-                table.insert(parsedLine.effects, effect)
-            end
-
-            lines[currentLine] = parsedLine
-
+        line = trim(line)
+        
+        if line:match("^#%s*(.+)$") then
+            -- New section
+            currentSection = line:match("^#%s*(.+)$")
+            lines[currentSection] = {}
+            currentLine = 1
+        elseif line:match("^(%S+):%s*(.+)$") then
+            -- Dialogue line
+            local character, text = line:match("^(%S+):%s*(.+)$")
+            local parsedLine = {character = character, text = text, effects = {}}
+            
+            -- Parse text effects
+            parsedLine.text, parsedLine.effects = Parser.parseEffects(text)
+            
+            table.insert(lines[currentSection], parsedLine)
+            
             if not characters[character] then
                 characters[character] = {r = love.math.random(), g = love.math.random(), b = love.math.random()}
             end
-
+            
             currentLine = currentLine + 1
-        elseif line:match("^%[branch%d+%]") then
-            local branchText = line:match("%[branch%d+%]%s*(.-)%s*%[/branch%d+%]")
-            local targetLine = tonumber(line:match("%[target:(%d+)%]"))
-            if branchText and targetLine then
-                if not lines[currentLine - 1].branches then
-                    lines[currentLine - 1].branches = {}
+        elseif line:match("^%->%s*(.+)$") then
+            -- Choice option
+            local choiceText = line:match("^%->%s*(.+)$")
+            if #lines[currentSection] == 0 then
+                print("Warning: Choice found before any dialogue in section " .. currentSection)
+                table.insert(lines[currentSection], {character = "", text = "", choices = {}})
+            end
+            if not lines[currentSection][#lines[currentSection]].choices then
+                lines[currentSection][#lines[currentSection]].choices = {}
+            end
+            table.insert(lines[currentSection][#lines[currentSection]].choices, {text = choiceText})
+        elseif line:match("^=>%s*(.+)$") then
+            -- Choice action
+            local action = line:match("^=>%s*(.+)$")
+            if #lines[currentSection] == 0 or not lines[currentSection][#lines[currentSection]].choices then
+                print("Warning: Action found before any choices in section " .. currentSection)
+            else
+                local lastChoice = lines[currentSection][#lines[currentSection]].choices[#lines[currentSection][#lines[currentSection]].choices]
+                if action == "END" then
+                    lastChoice.action = {type = "end"}
+                elseif action:match("^GOTO%s+(.+)$") then
+                    local target = action:match("^GOTO%s+(.+)$")
+                    lastChoice.action = {type = "goto", target = target}
                 end
-                table.insert(lines[currentLine - 1].branches, {text = branchText, targetLine = targetLine})
             end
         end
     end
 
     return lines, characters
+end
+
+function Parser.parseEffects(text)
+    local parsedText = ""
+    local effects = {}
+    local currentIndex = 1
+
+    while true do
+        local startTag, endTag, tag, content = text:find("<([^>]+)>([^<]+)</[^>]+>", currentIndex)
+
+        if not startTag then
+            -- No more tags found, add the rest of the text
+            parsedText = parsedText .. text:sub(currentIndex)
+            break
+        end
+
+        -- Add text before the tag
+        parsedText = parsedText .. text:sub(currentIndex, startTag - 1)
+
+        local effect = {
+            type = tag,
+            content = content,
+            startIndex = #parsedText + 1,
+            endIndex = #parsedText + #content
+        }
+
+        parsedText = parsedText .. content
+        table.insert(effects, effect)
+
+        currentIndex = endTag + 1
+    end
+
+    return parsedText, effects
 end
 
 return Parser

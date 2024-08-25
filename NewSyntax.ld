@@ -1,8 +1,6 @@
 # start
 Character1: Hello! This is the start of the dialogue.
-Character2: Nice to meet you! What would you like to do?/
--> be a gay man
-=> GOTO gaymen
+Character2: Nice to meet you! What would you like to do?
 -> Go to section A
 => GOTO section_a
 
@@ -12,10 +10,6 @@ Character2: Nice to meet you! What would you like to do?/
 -> End the dialogue
 => END
 
-
-#gaymen
-Gayman: Aydawg
-=> END
 # section_a
 Character1: You chose to go to section A.
 Character2: That's great! Let's continue from here.
